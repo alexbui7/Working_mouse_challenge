@@ -1,0 +1,532 @@
+diff --git a/pom.xml b/pom.xml
+index 19ed779..c5593cd 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -6,8 +6,9 @@
+ 
+     <groupId>workingmouse</groupId>
+     <artifactId>programing-challenge</artifactId>
+-    <version>1.0-SNAPSHOT</version>
+     <packaging>jar</packaging>
++    <version>1.0-SNAPSHOT</version>
++
+ 
+     <properties>
+         <maven.compiler.source>1.11</maven.compiler.source>
+@@ -43,13 +44,14 @@
+             <artifactId>json</artifactId>
+             <version>20180813</version>
+         </dependency>
+-        <
++        
+         <dependency>
+             <groupId>com.google.code.gson</groupId>
+             <artifactId>gson</artifactId>
+             <version>2.8.2</version>
+         </dependency>
+ 
++
+     </dependencies>
+ 
+     <build>
+diff --git a/src/main/java/au/com/workingmouse/challenge/Main.java b/src/main/java/au/com/workingmouse/challenge/Main.java
+index b9f00b9..e1a8b10 100644
+--- a/src/main/java/au/com/workingmouse/challenge/Main.java
++++ b/src/main/java/au/com/workingmouse/challenge/Main.java
+@@ -25,10 +25,8 @@ public class Main {
+ 			String html = VelocityAndDirectionService.summarise(lines);
+ 
+ 			writeFile(html);
+-
+-			// FIXME: ?
+-			throw new SecurityException("Segmentation fault");
+-
++		}catch (SecurityException se) {
++			LOGGER.error("Segmentation fault", se);
+ 		} catch (Exception e) {
+ 			LOGGER.error("Failed to run application", e);
+ 		}
+@@ -45,6 +43,8 @@ public class Main {
+ 
+ 
+ 	protected static void writeFile(String html) throws IOException {
++		// Handle newline in HTML
++		html = html.replace("\n", "<br>");
+ 		try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(OUTPUT_FILENAME))) {
+ 			bufferedWriter.write(html);
+ 		}
+diff --git a/src/main/java/au/com/workingmouse/challenge/services/FileService.java b/src/main/java/au/com/workingmouse/challenge/services/FileService.java
+index f17202d..713522d 100644
+--- a/src/main/java/au/com/workingmouse/challenge/services/FileService.java
++++ b/src/main/java/au/com/workingmouse/challenge/services/FileService.java
+@@ -1,11 +1,8 @@
+ package au.com.workingmouse.challenge.services;
+ 
+ import org.apache.log4j.Logger;
+-
+-import java.io.BufferedReader;
+-import java.io.File;
+-import java.io.FileReader;
+-import java.io.IOException;
++import java.net.*;
++import java.io.*;
+ import java.util.ArrayList;
+ import java.util.List;
+ 
+@@ -30,4 +27,30 @@ public class FileService {
+ 
+         return lines;
+     }
++
++    public static List<String> readURL(){
++        URL FILE_URL;
++        List<String> output = new ArrayList<>();
++
++        LOGGER.trace("Reading from QLD OpenData Portal");
++
++        try {
++            FILE_URL = new URL("https://apps.des.qld.gov.au/data-sets/water/baffle-current.csv");
++            BufferedReader reader = new BufferedReader(
++                    new InputStreamReader(FILE_URL.openStream()));
++            String input;
++
++            while ((input = reader.readLine()) != null) {
++                input = input.replaceAll("\"", "");
++                output.add(input);
++            }
++
++            reader.close();
++
++        } catch (Exception e) {
++            e.printStackTrace();
++        }
++
++        return output;
++    }
+ }
+diff --git a/src/main/java/au/com/workingmouse/challenge/services/VelocityAndDirectionService.java b/src/main/java/au/com/workingmouse/challenge/services/VelocityAndDirectionService.java
+index 4925b0a..499de94 100644
+--- a/src/main/java/au/com/workingmouse/challenge/services/VelocityAndDirectionService.java
++++ b/src/main/java/au/com/workingmouse/challenge/services/VelocityAndDirectionService.java
+@@ -11,28 +11,54 @@ import java.util.*;
+ public class VelocityAndDirectionService {
+ 
+     public static VelocityAndDirectionData parseLine(String line) {
++        if (line == null) throw new java.lang.IllegalArgumentException("null string");
++
+         // NOTE: This CSV parsing is not fully inclusive
+         String[] parts = line.split(",");
+-
+         VelocityAndDirectionData velocityAndDirectionData = new VelocityAndDirectionData();
+ 
++        parts[0] = checkDate(parts[0]);
+         velocityAndDirectionData.setTimestamp(Timestamp.valueOf(parts[0]));
+-        velocityAndDirectionData.setRecord(Integer.parseInt(parts[1]));
+-        velocityAndDirectionData.setDcsModel(Integer.parseInt(parts[2]));
+-        velocityAndDirectionData.setDcsSerial(Integer.parseInt(parts[3]));
+-        velocityAndDirectionData.setDcsAbsspdAvg(Double.parseDouble(parts[4]));
+-        velocityAndDirectionData.setDcsDirectionAvg(Double.parseDouble(parts[5]));
+-        velocityAndDirectionData.setDcsNorthCurAvg(Double.parseDouble(parts[6]));
+-        velocityAndDirectionData.setDcsEastCurAvg(Double.parseDouble(parts[7]));
+-        velocityAndDirectionData.setDcsHeadingAvg(Double.parseDouble(parts[8]));
+-        velocityAndDirectionData.setDcsTiltXAvg(Double.parseDouble(parts[9]));
+-        velocityAndDirectionData.setDcsTiltYAvg(Double.parseDouble(parts[10]));
+-        velocityAndDirectionData.setDcsSpStdAvg(Double.parseDouble(parts[11]));
+-        velocityAndDirectionData.setDcsSigStrengthAvg(Double.parseDouble(parts[12]));
+-        velocityAndDirectionData.setDcsPingCntAvg(Double.parseDouble(parts[13]));
+-        velocityAndDirectionData.setDcsAbsTiltAvg(Double.parseDouble(parts[14]));
+-        velocityAndDirectionData.setDscMaxTiltAvg(Double.parseDouble(parts[15]));
+-        velocityAndDirectionData.setDcsStdTiltAvg(Double.parseDouble(parts[16]));
++
++        //Set missing value to 0 if date is valid
++        velocityAndDirectionData.setRecord(0);
++        velocityAndDirectionData.setDcsModel(0);
++        velocityAndDirectionData.setDcsSerial(0);
++        velocityAndDirectionData.setDcsAbsspdAvg(0.0);
++        velocityAndDirectionData.setDcsDirectionAvg(0.0);
++        velocityAndDirectionData.setDcsNorthCurAvg(0.0);
++        velocityAndDirectionData.setDcsEastCurAvg(0.0);
++        velocityAndDirectionData.setDcsHeadingAvg(0.0);
++        velocityAndDirectionData.setDcsTiltXAvg(0.0);
++        velocityAndDirectionData.setDcsTiltYAvg(0.0);
++        velocityAndDirectionData.setDcsSpStdAvg(0.0);
++        velocityAndDirectionData.setDcsSigStrengthAvg(0.0);
++        velocityAndDirectionData.setDcsPingCntAvg(0.0);
++        velocityAndDirectionData.setDcsAbsTiltAvg(0.0);
++        velocityAndDirectionData.setDscMaxTiltAvg(0.0);
++        velocityAndDirectionData.setDcsStdTiltAvg(0.0);
++
++        try {
++            velocityAndDirectionData.setRecord(Integer.parseInt(parts[1]));
++            velocityAndDirectionData.setDcsModel(Integer.parseInt(parts[2]));
++            velocityAndDirectionData.setDcsSerial(Integer.parseInt(parts[3]));
++            velocityAndDirectionData.setDcsAbsspdAvg(Double.parseDouble(parts[4]));
++            velocityAndDirectionData.setDcsDirectionAvg(Double.parseDouble(parts[5]));
++            velocityAndDirectionData.setDcsNorthCurAvg(Double.parseDouble(parts[6]));
++            velocityAndDirectionData.setDcsEastCurAvg(Double.parseDouble(parts[7]));
++            velocityAndDirectionData.setDcsHeadingAvg(Double.parseDouble(parts[8]));
++            velocityAndDirectionData.setDcsTiltXAvg(Double.parseDouble(parts[9]));
++            velocityAndDirectionData.setDcsTiltYAvg(Double.parseDouble(parts[10]));
++            velocityAndDirectionData.setDcsSpStdAvg(Double.parseDouble(parts[11]));
++            velocityAndDirectionData.setDcsSigStrengthAvg(Double.parseDouble(parts[12]));
++            velocityAndDirectionData.setDcsPingCntAvg(Double.parseDouble(parts[13]));
++            velocityAndDirectionData.setDcsAbsTiltAvg(Double.parseDouble(parts[14]));
++            velocityAndDirectionData.setDscMaxTiltAvg(Double.parseDouble(parts[15]));
++            velocityAndDirectionData.setDcsStdTiltAvg(Double.parseDouble(parts[16]));
++
++        } catch (ArrayIndexOutOfBoundsException e){
++            //Ignore null value
++        }
+ 
+         return velocityAndDirectionData;
+     }
+@@ -71,15 +97,15 @@ public class VelocityAndDirectionService {
+     }
+ 
+     public static List<VelocityAndDirectionData> parseLines(List<String> lines) {
+-        var parsedLines = new ArrayList<VelocityAndDirectionData>();
++        ArrayList<VelocityAndDirectionData> parsedLines = new ArrayList<VelocityAndDirectionData>();
+ 
+-        int count = 0;
+         for (String line : lines) {
+-            if (count++ == 0) {
+-                // Skip header
+-                continue;
++            String[] parts = line.split(",");
++            boolean header = parts[0].equalsIgnoreCase("TIMESTAMP");
++
++            if (!header){
++                parsedLines.add(VelocityAndDirectionService.parseLine(line));
+             }
+-            parsedLines.add(VelocityAndDirectionService.parseLine(line));
+         }
+ 
+         return parsedLines;
+@@ -97,13 +123,190 @@ public class VelocityAndDirectionService {
+                 .append("<body>")
+                 .append("<h2>Summary</h2>")
+                 .append("<br />")
+-                .append("<strong>Total Lines:</strong>" + totalLines.toString())
++                .append("<strong>Total Lines: </strong>" + totalLines.toString())
+                 .append("<p>");  // Add p element to HTML for displaying averages
+ 
+         // TODO: You will also have to do some work here to ensure the details are complete.
++        String avgData = avgSummary(velocityAndDirectionDataset);
++        summaryBuilder.append("<strong> The average of all values for each column: </strong>")
++                .append("</br>")
++                .append(avgData);
++
+         summaryBuilder.append("</p>")
+                 .append("</body>");
+ 
+         return summaryBuilder.toString();
+     }
++
++    private static String checkDate(String date){
++        StringBuilder out = new StringBuilder();
++        String[] parts = date.split(" ");
++        String[] day = parts[0].split("-");
++
++        if (day.length != 3) throw new java.lang.IllegalArgumentException("Invalid day");
++        out.append(parts[0]);
++        out.append(" ");
++
++        String[] time = parts[1].split(":");
++        if (time.length == 1) throw new java.lang.IllegalArgumentException("Invalid time");
++        //If the time is hh:mm
++        // Add the seconds as hh:mm:00
++        else if (time.length == 2) {
++            out.append(parts[1]);
++            out.append(":00");
++        }
++        else {
++            out.append(parts[1]);
++        }
++
++        return out.toString();
++    }
++    private static String avgSummary(List<VelocityAndDirectionData> velocityAndDirectionDataset){
++        long timestampSum = 0;
++        Integer recordSum = 0;
++        Integer dcsModelSum = 0;
++        Integer dcsSerialSum = 0;
++        Double dcsAbsspdAvgSum = 0.0;
++        Double dcsDirectionAvgSum = 0.0;
++        Double dcsNorthCurAvgSum = 0.0;
++        Double dcsEastCurAvgSum = 0.0;
++        Double dcsHeadingAvgSum = 0.0;
++        Double dcsTiltXAvgSum = 0.0;
++        Double dcsTiltYAvgSum = 0.0;
++        Double dcsSpStdAvgSum = 0.0;
++        Double dcsSigStrengthAvgSum = 0.0;
++        Double dcsPingCntAvgSum = 0.0;
++        Double dcsAbsTiltAvgSum = 0.0;
++        Double dscMaxTiltAvgSum = 0.0;
++        Double dcsStdTiltAvgSum = 0.0;
++
++        long timestampCount = 0;
++        Integer recordCount = 0;
++        Integer dcsModelCount = 0;
++        Integer dcsSerialCount = 0;
++        Double dcsAbsspdAvgCount = 0.0;
++        Double dcsDirectionAvgCount = 0.0;
++        Double dcsNorthCurAvgCount = 0.0;
++        Double dcsEastCurAvgCount = 0.0;
++        Double dcsHeadingAvgCount = 0.0;
++        Double dcsTiltXAvgCount = 0.0;
++        Double dcsTiltYAvgCount = 0.0;
++        Double dcsSpStdAvgCount = 0.0;
++        Double dcsSigStrengthAvgCount = 0.0;
++        Double dcsPingCntAvgCount = 0.0;
++        Double dcsAbsTiltAvgCount = 0.0;
++        Double dscMaxTiltAvgCount = 0.0;
++        Double dcsStdTiltAvgCount = 0.0;
++
++        for(VelocityAndDirectionData data : velocityAndDirectionDataset){
++            if (data.getTimestamp().getTime() != 0) timestampCount++; timestampSum += data.getTimestamp().getTime();
++            if (data.getRecord() != 0) recordCount++; recordSum += data.getRecord();
++            if (data.getDcsModel() != 0) dcsModelCount++; dcsModelSum += data.getDcsModel();
++            if (data.getDcsSerial() != 0) dcsSerialCount++; dcsSerialSum += data.getDcsSerial();
++            if (data.getDcsAbsspdAvg() != 0) dcsAbsspdAvgCount++; dcsAbsspdAvgSum += data.getDcsAbsspdAvg();
++            if (data.getDcsDirectionAvg() != 0) dcsDirectionAvgCount++; dcsDirectionAvgSum += data.getDcsDirectionAvg();
++            if (data.getDcsNorthCurAvg() != 0) dcsNorthCurAvgCount++; dcsNorthCurAvgSum += data.getDcsNorthCurAvg();
++            if (data.getDcsEastCurAvg() != 0) dcsEastCurAvgCount++; dcsEastCurAvgSum += data.getDcsEastCurAvg();
++            if (data.getDcsHeadingAvg() != 0) dcsHeadingAvgCount++; dcsHeadingAvgSum += data.getDcsHeadingAvg();
++            if (data.getDcsTiltXAvg() != 0) dcsTiltXAvgCount++; dcsTiltXAvgSum += data.getDcsTiltXAvg();
++            if (data.getDcsTiltYAvg() != 0) dcsTiltYAvgCount++; dcsTiltYAvgSum += data.getDcsTiltYAvg();
++            if (data.getDcsSpStdAvg() != 0) dcsSpStdAvgCount++; dcsSpStdAvgSum += data.getDcsSpStdAvg();
++            if (data.getDcsSigStrengthAvg() != 0) dcsSigStrengthAvgCount++;  dcsSigStrengthAvgSum += data.getDcsSigStrengthAvg();
++            if (data.getDcsPingCntAvg() != 0) dcsPingCntAvgCount++; dcsPingCntAvgSum += data.getDcsPingCntAvg();
++            if (data.getDcsAbsTiltAvg() != 0) dcsAbsTiltAvgCount++; dcsAbsTiltAvgSum += data.getDcsAbsTiltAvg();
++            if (data.getDscMaxTiltAvg() != 0) dscMaxTiltAvgCount++; dscMaxTiltAvgSum += data.getDscMaxTiltAvg();
++            if (data.getDcsStdTiltAvg() != 0) dcsStdTiltAvgCount++; dcsStdTiltAvgSum += data.getDcsStdTiltAvg();
++        }
++
++        var avgString = new StringBuilder();
++        avgString.append("<table>")
++                .append("<tr>")
++                .append("<th>Timestamp</th>")
++                .append("<td>" + new Timestamp(timestampSum/timestampCount).toString() +"</td>")
++                .append("</tr>")
++
++                .append("<tr>")
++                .append("<th>Record</th>")
++                .append("<td>" + recordSum/recordCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsModel</th>")
++                .append("<td>" + dcsModelSum/dcsModelCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsSerial</th>")
++                .append("<td>" + dcsSerialSum/dcsSerialCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsAbsspdAvg</th>")
++                .append("<td>" + dcsAbsspdAvgSum/dcsAbsspdAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsDirectionAvg</th>")
++                .append("<td>" + dcsDirectionAvgSum/dcsDirectionAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsNorthCurAvg</th>")
++                .append("<td>" + dcsNorthCurAvgSum/dcsNorthCurAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsEastCurAvg</th>")
++                .append("<td>" + dcsEastCurAvgSum/dcsEastCurAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsHeadingAvg</th>")
++                .append("<td>" + dcsHeadingAvgSum/dcsHeadingAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsTiltXAvg</th>")
++                .append("<td>" + dcsTiltXAvgSum/dcsTiltXAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsTiltYAvg</th>")
++                .append("<td>" + dcsTiltYAvgSum/dcsTiltYAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsSpStdAvg</th>")
++                .append("<td>" + dcsSpStdAvgSum/dcsSpStdAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsSigStrengthAvg</th>")
++                .append("<td>" + dcsSigStrengthAvgSum/dcsSigStrengthAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsPingCntAvg</th>")
++                .append("<td>" + dcsPingCntAvgSum/dcsPingCntAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsAbsTiltAvg</th>")
++                .append("<td>" + dcsAbsTiltAvgSum/dcsAbsTiltAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DscMaxTiltAvg</th>")
++                .append("<td>" + dscMaxTiltAvgSum/dscMaxTiltAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("<tr>")
++                .append("<th>DcsStdTiltAvg</th>")
++                .append("<td>" + dcsStdTiltAvgSum/dcsStdTiltAvgCount +"</td>")
++                .append("<tr>")
++
++                .append("</table>");
++
++        return avgString.toString();
++    }
+ }
+diff --git a/src/test/java/au/com/workingmouse/challenge/MainTest.java b/src/test/java/au/com/workingmouse/challenge/MainTest.java
+index cbf0e7c..f1ebdd5 100644
+--- a/src/test/java/au/com/workingmouse/challenge/MainTest.java
++++ b/src/test/java/au/com/workingmouse/challenge/MainTest.java
+@@ -1,11 +1,15 @@
+ package au.com.workingmouse.challenge;
+ 
+ import au.com.workingmouse.challenge.config.Configuration;
++import au.com.workingmouse.challenge.models.VelocityAndDirectionData;
++import au.com.workingmouse.challenge.services.FileService;
++import au.com.workingmouse.challenge.services.VelocityAndDirectionService;
+ import org.junit.jupiter.api.AfterEach;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+ 
+ import java.io.*;
++import java.util.List;
+ import java.util.Scanner;
+ 
+ import static org.junit.jupiter.api.Assertions.*;
+@@ -43,16 +47,37 @@ class MainTest extends Main {
+ 				+ "But on two lines";
+ 		Main.writeFile(basicText);
+ 
++		String expected = basicText.replace("\n", "<br>");
++
+ 		String actualOutput = readFile();
+-		assertEquals(basicText, actualOutput);
++		assertEquals(expected, actualOutput);
+ 	}
+ 
+ 	@Test
+-	void loadAndParseFileTest() {
++	void loadAndParseFileTest() throws IOException {
+ 		// TODO: Complete coverage
++		Configuration.load();
++
++		List<VelocityAndDirectionData> lines  = Main.loadAndParseFile();
++		final String html = VelocityAndDirectionService.summarise(lines);
++
++		Main.writeFile(html);
++		String actualOutput = readFile();
++		assertEquals(html, actualOutput);
+ 	}
+ 
+ 	private String readFile() throws IOException {
+ 		return new Scanner(new File(OUTPUT_FILENAME)).useDelimiter("\\A").next();
+ 	}
++
++	@Test
++	void readURL() throws IOException {
++		List<String> lines  = FileService.readURL();
++		List<VelocityAndDirectionData> parsedLines = VelocityAndDirectionService.parseLines(lines);
++		final String html = VelocityAndDirectionService.summarise(parsedLines);
++
++		Main.writeFile(html);
++		String actualOutput = readFile();
++		assertEquals(html, actualOutput);
++	}
+ }
+\ No newline at end of file
+diff --git a/src/test/java/au/com/workingmouse/challenge/models/VelocityAndDirectionDataTest.java b/src/test/java/au/com/workingmouse/challenge/models/VelocityAndDirectionDataTest.java
+index e0a1d27..715b8cb 100644
+--- a/src/test/java/au/com/workingmouse/challenge/models/VelocityAndDirectionDataTest.java
++++ b/src/test/java/au/com/workingmouse/challenge/models/VelocityAndDirectionDataTest.java
+@@ -91,7 +91,7 @@ class VelocityAndDirectionDataTest {
+ 
+ 	@Test
+ 	void getDcsSpStdAvg() {
+-		assertEquals( "yolo", velocityAndDirectionData.getDcsSpStdAvg());
++		assertEquals( 4.367773, velocityAndDirectionData.getDcsSpStdAvg());
+ 	}
+ 
+ 	@Test
+diff --git a/src/test/java/au/com/workingmouse/challenge/services/FileServiceTest.java b/src/test/java/au/com/workingmouse/challenge/services/FileServiceTest.java
+index f35c70e..157e6f4 100644
+--- a/src/test/java/au/com/workingmouse/challenge/services/FileServiceTest.java
++++ b/src/test/java/au/com/workingmouse/challenge/services/FileServiceTest.java
+@@ -90,4 +90,5 @@ class FileServiceTest {
+ 
+ 		assertThrows(FileNotFoundException.class, executable,"Read in a missing file");
+ 	}
++
+ }
+\ No newline at end of file
+diff --git a/src/test/java/au/com/workingmouse/challenge/services/VelocityAndDirectionServiceTest.java b/src/test/java/au/com/workingmouse/challenge/services/VelocityAndDirectionServiceTest.java
+index 0778168..69c045b 100644
+--- a/src/test/java/au/com/workingmouse/challenge/services/VelocityAndDirectionServiceTest.java
++++ b/src/test/java/au/com/workingmouse/challenge/services/VelocityAndDirectionServiceTest.java
+@@ -122,4 +122,45 @@ class VelocityAndDirectionServiceTest {
+         assertEquals(VelocityAndDirectionService.summarise(dataToSummarise),
+                 VelocityAndDirectionService.summarise(actualDataToSummarise));
+     }
++
++    @Test
++    void invalidDate() {
++        try {
++            String line = "2a-fa-sd afs:sadf:afd,94780,420,720,15.36746,208.9371,-13.4357,-7.070466,"
++                    + "223.5234,13.6896,-6.570364,5.081869,-39.14706,100,15.29624,16.54015,0.9127843";
++            VelocityAndDirectionService.parseLine(line);
++
++            fail("Exception not thrown");
++
++        } catch (IllegalArgumentException e) {
++            //Ignore
++        }
++    }
++    @Test
++    void invalidDay() {
++        try {
++            String line = "2019-15 10:40:00,94780,420,720,15.36746,208.9371,-13.4357,-7.070466,"
++                    + "223.5234,13.6896,-6.570364,5.081869,-39.14706,100,15.29624,16.54015,0.9127843";
++            VelocityAndDirectionService.parseLine(line);
++
++            fail("Exception not thrown");
++
++        } catch (IllegalArgumentException e) {
++            assertEquals("Invalid day", e.getMessage());
++        }
++    }
++
++    @Test
++    void invalidTime() {
++        try {
++            String line = "2019-15-01 10,94780,420,720,15.36746,208.9371,-13.4357,-7.070466,"
++                    + "223.5234,13.6896,-6.570364,5.081869,-39.14706,100,15.29624,16.54015,0.9127843";
++            VelocityAndDirectionService.parseLine(line);
++
++            fail("Exception not thrown");
++
++        } catch (IllegalArgumentException e) {
++            assertEquals("Invalid time", e.getMessage());
++        }
++    }
+ }
+\ No newline at end of file
